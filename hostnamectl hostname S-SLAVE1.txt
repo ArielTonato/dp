@@ -1,0 +1,129 @@
+hostnamectl hostname S-SLAVE1
+reboot -h 0
+nmtui 
+yum install httpd -y
+systemctl start httpd
+systemctl enable httpd
+systemctl status httpd
+firewall-cmd --add-service=http --zone=public --permanent
+firewall-cmd --reload
+echo "<h1>Nodo 1</h1>" | tee /var/www/html/index.html
+nano /etc/hosts
+yum install haproxy -y
+nano /etc/haproxy/haproxy.cfg
+haproxy -c -f /etc/haproxy/haproxy.cfg
+///
+############################### BALANCEO DE CARGA #########################
+frontend http_web
+     bind *:80
+     default_backend    haproxy
+     option             forwardfor
+
+backend haproxy
+    balance roundrobin
+    server  haproxy-server1 192.168.3.167:80 check ##Cambiar las ips
+    server  haproxy-server2 192.168.3.169:80 check
+
+service haproxy start
+systemctl enable haproxy
+
+yum install mysql mysql-server -y
+systemctl start mysqld
+systemctl enable mysqld
+systemctl status mysqld
+mysql_secure_installation
+
+cd /etc/my.cnf.d
+nano mysql-server.cnf
+//Master
+server-id=1
+log-bin=mysql-bin
+
+CREATE USER 'replicator'@'%' IDENTIFIED BY 'fisei123';
+GRANT REPLICATION SLAVE ON *.* TO 'replicator'@'%';
+GRANT ALL PRIVILEGES ON *.* TO 'replicator'@'%';
+FLUSH PRIVILEGES;
+
+SHOW MASTER STATUS
+
+ systemctl restart mysqld
+
+
+//Slave
+server-id=2
+log-bin=mysql-bin
+relay-log = mysql-relay-bin
+
+CHANGE MASTER TO MASTER_HOST = '192.168.100.171', MASTER_USER = 'replicator', MASTER_PASSWORD = 'fisei123', MASTER_LOG_FILE = 'mysql-bin.000001', MASTER_LOG_POS = 157, GET_MASTER_PUBLIC_KEY=1;
+
+start slave;
+
+ systemctl restart mysqld
+
+RENAME USER 'root'@'localhost' TO 'root'@'%'
+
+firewall-cmd --permanent --zone=public --add-service=http --permanent
+firewall-cmd --permanent --zone=public --add-service=mysql
+firewall-cmd --permanent --zone=public --add-port=3306/tcp
+firewall-cmd --reload
+setenforce 0
+
+
+yum install keepalived -y
+echo "" | tee /etc/keepalived/keepalived.conf
+nano /etc/keepalived/keepalived.conf
+
+
+############################## ALTA DISPONIBILIDAD #########################
+global_defs {
+  # Keepalived process identifier
+  router_id nginx # Se puede cambiar dependiendo del servicio.
+}
+
+# Script to check whether Nginx is running or not
+vrrp_script check_nginx {
+  script "/bin/check_nginx.sh" # Verifica que el servicio funcione.
+  interval 2
+  weight 50
+}
+
+# Virtual interface - The priority specifies the order in 
+# which the assigned interface to take over in a failover
+vrrp_instance VI_01 {
+  state MASTER # Dependiento el nodo se configura MASTER o BACKUP
+  interface enp0s3 # Agregar la interfaz de red eth0, enp0s3, etc.
+  virtual_router_id 50 # De 0-255, el mismo en todos los nodos.
+  priority 110 # 110 para MASTER o 100 para BACKUP
+
+  # The virtual ip address shared between the two NGINX 
+  # Web Server which will float
+  virtual_ipaddress {
+    192.168.100.167/24 # Esta IP debe ir en todos los nodos.
+  }
+  track_script {
+    check_nginx
+  }
+  authentication {
+    auth_type AH
+    auth_pass secret
+  }
+}
+
+################## check_nginx.sh ###############
+
+#!/bin/sh
+if [ -z "`pidof nginx`" ]; then
+  exit 1
+fi
+
+#########firewall########
+firewall-cmd --add-rich-rule='rule protocol value="vrrp" accept' --permanent
+
+
+yum install php -y
+systemctl restart php-fpm
+systemctl restart httpd
+yum install php-mysqlnd -y
+
+
+
