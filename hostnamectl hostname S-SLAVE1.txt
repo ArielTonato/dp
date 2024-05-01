@@ -9,9 +9,12 @@ firewall-cmd --add-service=http --zone=public --permanent
 firewall-cmd --reload
 echo "<h1>Nodo 1</h1>" | tee /var/www/html/index.html
 nano /etc/hosts
+	
+	ipactualmaquinaslave slave1
+	::1 		     slave1	
+
 yum install haproxy -y
 nano /etc/haproxy/haproxy.cfg
-haproxy -c -f /etc/haproxy/haproxy.cfg
 ///
 ############################### BALANCEO DE CARGA #########################
 frontend http_web
@@ -23,6 +26,8 @@ backend haproxy
     balance roundrobin
     server  haproxy-server1 192.168.3.167:80 check ##Cambiar las ips
     server  haproxy-server2 192.168.3.169:80 check
+haproxy -c -f /etc/haproxy/haproxy.cfg
+
 
 service haproxy start
 systemctl enable haproxy
@@ -69,7 +74,7 @@ firewall-cmd --reload
 setenforce 0
 
 
-yum install keepalived -y
+yum install keepalived -y #en las tres
 echo "" | tee /etc/keepalived/keepalived.conf
 nano /etc/keepalived/keepalived.conf
 
@@ -116,9 +121,16 @@ if [ -z "`pidof nginx`" ]; then
   exit 1
 fi
 
+
+
+nano /bin/check_apache.sh
+chmod 755 /bin/check_apache.sh
+
+service start keepalived
 #########firewall########
 firewall-cmd --add-rich-rule='rule protocol value="vrrp" accept' --permanent
-
+firewall-cmd --reload
+service keepalived restart
 
 yum install php -y
 systemctl restart php-fpm
